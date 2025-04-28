@@ -2,7 +2,7 @@
 <gupdate xmlns="http://www.google.com/update2/response" protocol="2.0">
   <app appid="omppadinlciglkbcgfmkggdpminmddbg">
     <updatecheck
-      codebase="https://AfterLifeRUS.github.io/webarchivist/ВебАрхивист 0.3.1.crx"
-      version="1.0.0" />
+      codebase="https://AfterLifeRUS.github.io/webarchivist/ВебАрхивист 0.3.2.crx"
+      version="0.3.2" />
   </app>
 </gupdate>
