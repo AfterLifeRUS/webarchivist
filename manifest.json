@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "ВебАрхивист",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Позволяет автоматизировать скачивание изображений из различных сервисов",
 "permissions": [
     "webRequest",
     "downloads",
     "activeTab",
     "tabs",
-    "notifications" 
+    "notifications",
+	"https://afterliferus.github.io/*"
   ],
   "update_url": "https://afterliferus.github.io/webarchivist/updates.xml",
 
@@ -37,8 +38,8 @@
     "matches": [
       "https://ya.ru/archive/*",
       "https://yandex.ru/archive/*",
-      "https://goskatalog.ru/portal/*",          // <-- для Госкаталога
-      "https://catalog.shm.ru/*"                 // <-- для ГИМ
+      "https://goskatalog.ru/portal/*",         
+      "https://catalog.shm.ru/*"      
     ],
       "js": ["contentScript.js"]
     }

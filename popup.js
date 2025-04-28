@@ -720,7 +720,81 @@ document.addEventListener('DOMContentLoaded', () => {
       message: message
     });
   }
+  
+  /** Проверяет, актуальна ли версия расширения, по GitHub */
+async function checkVersionFromUpdatesXml() {
+  const updatesUrl = 'https://AfterLifeRUS.github.io/webarchivist/updates.xml';
+  const listEl = document.getElementById('messageList');
+
+  try {
+    const response = await fetch(updatesUrl);
+    if (!response.ok) {
+      throw new Error(`Ошибка загрузки updates.xml: ${response.status}`);
+    }
+
+    const xmlText = await response.text();
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlText, "application/xml");
+
+    const updatecheck = xmlDoc.querySelector("updatecheck");
+    if (!updatecheck) {
+      throw new Error("updatecheck не найден в updates.xml");
+    }
+
+    const latestVersion = updatecheck.getAttribute("version");
+    if (!latestVersion) {
+      throw new Error("Атрибут version отсутствует в updates.xml");
+    }
+
+    const currentVersion = chrome.runtime.getManifest().version;
+
+    console.log(`Текущая версия расширения: ${currentVersion}`);
+    console.log(`Последняя версия из updates.xml: ${latestVersion}`);
+
+    const statusLi = document.createElement('li');
+    if (currentVersion === latestVersion) {
+      statusLi.textContent = `Версия актуальная: ${currentVersion}`;
+      statusLi.style.color = 'green';
+    } else {
+      statusLi.textContent = `Доступна новая версия: ${latestVersion} (у вас ${currentVersion})`;
+      statusLi.style.color = 'orange';
+    }
+	
+	
+	if (currentVersion !== latestVersion) {
+		statusLi.textContent = `Доступна новая версия: ${latestVersion} (у вас ${currentVersion})`;
+		statusLi.style.color = 'orange';
+
+		const updateButton = document.createElement('button');
+		updateButton.textContent = "Обновить расширение";
+		updateButton.style.marginTop = '10px';
+		updateButton.addEventListener('click', () => {
+		// лучше сразу показать подсказку:
+		alert("На странице расширений нажмите кнопку «Обновить» в режиме разработчика");
+		chrome.tabs.create({ url: "chrome://extensions/?id=" + chrome.runtime.id });
+});
+		listEl.appendChild(updateButton);
+	}
+
+    if (listEl) {
+      listEl.appendChild(statusLi);
+    }
+
+  } catch (error) {
+    console.error("Ошибка проверки версии через updates.xml:", error);
+    const listEl = document.getElementById('messageList');
+    if (listEl) {
+      const statusLi = document.createElement('li');
+      statusLi.textContent = "Не удалось проверить обновления.";
+      statusLi.style.color = 'red';
+      listEl.appendChild(statusLi);
+    }
+  }
+}
+
+
 
   // --- Запуск инициализации ---
   initializePopup();
+  checkVersionFromUpdatesXml();
 });
