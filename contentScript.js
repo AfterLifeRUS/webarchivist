@@ -28,7 +28,83 @@ function getBaseUrl() {
   return urlParts.join('/');
 }
 
+// Функция для ожидания элементов на странице
+const waitForElements = (selector, timeout = 10000) => {
+  console.log(`Ожидаю элементы по селектору: ${selector}`);
+  return new Promise((resolve) => {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      console.log(`Найдено элементов сразу: ${elements.length} по селектору ${selector}`);
+      return resolve(elements);
+    }
+
+    const observer = new MutationObserver(() => {
+      const elements = document.querySelectorAll(selector);
+      if (elements.length > 0) {
+        console.log(`Найдено элементов после ожидания: ${elements.length} по селектору ${selector}`);
+        observer.disconnect();
+        resolve(elements);
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    setTimeout(() => {
+      observer.disconnect();
+      console.warn(`Тайм-аут: Элементы не найдены: ${selector}`);
+      resolve([]);
+    }, timeout);
+  });
+};
+
+// Функция для извлечения URL-адресов изображений лота
+const extractImageUrls = async () => {
+  // Список селекторов для поиска изображений
+  const selectors = [
+    'tr td[ng-repeat="image in collectionItem.images"] img[ng-src*="/muzfo-imaginator/rest/images/original/"]', // Оригинальный селектор
+    'img[ng-src*="/muzfo-imaginator/rest/images/"]', // Более общий селектор с ng-src
+    'img[src*="/muzfo-imaginator/rest/images/"]', // Селектор с src
+    '.collection-item img, .lot-details img, [id*="collection"] img' // Общий селектор для контейнеров лота
+  ];
+
+  let imageElements = [];
+  for (const selector of selectors) {
+    imageElements = await waitForElements(selector);
+    if (imageElements.length > 0) {
+      console.log(`Использован селектор: ${selector}`);
+      break;
+    }
+  }
+
+  if (imageElements.length === 0) {
+    throw new Error("Не удалось найти изображения лота на странице.");
+  }
+
+  // Извлекаем URL-адреса
+  const imageUrls = Array.from(imageElements)
+    .map((element, index) => {
+      let imageUrl = element.getAttribute('ng-src') || element.getAttribute('src');
+      if (imageUrl && !imageUrl.startsWith('http')) {
+        // Если URL относительный, добавляем домен
+        imageUrl = 'https://goskatalog.ru' + imageUrl;
+      }
+      console.log(`Извлечённый URL изображения ${index + 1}: ${imageUrl}`);
+      return imageUrl;
+    })
+    .filter(url => url && typeof url === 'string' && url.includes('/muzfo-imaginator/rest/images/')); // Фильтруем только нужные URL
+
+  console.log(`Всего извлечено изображений: ${imageUrls.length}`, imageUrls);
+
+  if (imageUrls.length === 0) {
+    throw new Error("Извлечены пустые или некорректные URL-адреса изображений.");
+  }
+
+  return imageUrls;
+};
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log("Получено сообщение в contentScript:", message);
+
   if (message.type === "getPageInfo") {
     sendResponse({
       data: {
@@ -46,23 +122,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     });
   } else if (message.type === "getLotInfo") {
-    const img = document.querySelector('img[data-zoom-image], img[ng-src]');
-    const rawSrc = img
-      ? (img.getAttribute('data-zoom-image') || img.getAttribute('ng-src') || img.src)
-      : null;
-    const hash = window.location.hash;
-    const query = hash.includes('?') ? hash.split('?')[1] : "";
-    const params = new URLSearchParams(query);
-    const lotId = params.get('id') || "";
-
-    if (rawSrc && lotId) {
-      sendResponse({ status: "success", url: rawSrc, id: lotId });
-    } else {
-      sendResponse({
-        status: "fail",
-        error: !rawSrc ? "Изображение не найдено" : "lotId не найден"
+    extractImageUrls()
+      .then(imageUrls => {
+        sendResponse({
+          data: { imageUrls }
+        });
+      })
+      .catch(error => {
+        console.error("Ошибка извлечения изображений:", error);
+        sendResponse({
+          data: null,
+          error: error.message
+        });
       });
-    }
-    return true; // Асинхронный ответ
+    return true; // Указываем, что ответ асинхронный
   }
 });

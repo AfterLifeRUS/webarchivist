@@ -10,6 +10,8 @@
     "tabs",
     "notifications" 
   ],
+  "update_url": "https://afterliferus.github.io/webarchivist/updates.xml",
+
   "host_permissions": [
     "https://ya.ru/archive/*",
     "https://yandex.ru/archive/*"
