@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "ВебАрхивист",
+  "version": "0.3.1",
+  "description": "Позволяет автоматизировать скачивание изображений из различных сервисов",
+"permissions": [
+    "webRequest",
+    "downloads",
+    "activeTab",
+    "tabs",
+    "notifications" 
+  ],
+  "host_permissions": [
+    "https://ya.ru/archive/*",
+    "https://yandex.ru/archive/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon.png"
+  },
+  "icons": {
+    "128": "icon.png"
+  },
+  "web_accessible_resources": [
+  {
+	"resources": ["jszip.min.js"],
+	"matches": ["<all_urls>"]
+  }
+],
+  "content_scripts": [
+    {
+    "matches": [
+      "https://ya.ru/archive/*",
+      "https://yandex.ru/archive/*",
+      "https://goskatalog.ru/portal/*",          // <-- для Госкаталога
+      "https://catalog.shm.ru/*"                 // <-- для ГИМ
+    ],
+      "js": ["contentScript.js"]
+    }
+  ]
+}
