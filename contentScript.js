@@ -29,7 +29,7 @@ function getBaseUrl() {
 }
 
 // Функция для ожидания элементов на странице
-const waitForElements = (selector, timeout = 10000) => {
+const waitForElements = (selector, timeout = 5000) => {
   console.log(`Ожидаю элементы по селектору: ${selector}`);
   return new Promise((resolve) => {
     const elements = document.querySelectorAll(selector);
@@ -59,12 +59,12 @@ const waitForElements = (selector, timeout = 10000) => {
 
 // Функция для извлечения URL-адресов изображений лота
 const extractImageUrls = async () => {
-  // Список селекторов для поиска изображений
+  // Список селекторов для поиска изображений (приоритет у успешного селектора)
   const selectors = [
-    'tr td[ng-repeat="image in collectionItem.images"] img[ng-src*="/muzfo-imaginator/rest/images/original/"]', // Оригинальный селектор
-    'img[ng-src*="/muzfo-imaginator/rest/images/"]', // Более общий селектор с ng-src
-    'img[src*="/muzfo-imaginator/rest/images/"]', // Селектор с src
-    '.collection-item img, .lot-details img, [id*="collection"] img' // Общий селектор для контейнеров лота
+    'img[ng-src*="/muzfo-imaginator/rest/images/"]', // Успешный селектор на первом месте
+    'tr td[ng-repeat="image in collectionItem.images"] img[ng-src*="/muzfo-imaginator/rest/images/original/"]',
+    'img[src*="/muzfo-imaginator/rest/images/"]',
+    '.collection-item img, .lot-details img, [id*="collection"] img'
   ];
 
   let imageElements = [];
@@ -80,20 +80,35 @@ const extractImageUrls = async () => {
     throw new Error("Не удалось найти изображения лота на странице.");
   }
 
-  // Извлекаем URL-адреса
-  const imageUrls = Array.from(imageElements)
-    .map((element, index) => {
-      let imageUrl = element.getAttribute('ng-src') || element.getAttribute('src');
-      if (imageUrl && !imageUrl.startsWith('http')) {
-        // Если URL относительный, добавляем домен
-        imageUrl = 'https://goskatalog.ru' + imageUrl;
-      }
-      console.log(`Извлечённый URL изображения ${index + 1}: ${imageUrl}`);
-      return imageUrl;
-    })
-    .filter(url => url && typeof url === 'string' && url.includes('/muzfo-imaginator/rest/images/')); // Фильтруем только нужные URL
+  // Извлекаем URL-адреса и проверяем на дубли
+  const seenOriginalNames = new Set();
+  const imageUrls = [];
 
-  console.log(`Всего извлечено изображений: ${imageUrls.length}`, imageUrls);
+  Array.from(imageElements).forEach((element, index) => {
+    let imageUrl = element.getAttribute('ng-src') || element.getAttribute('src');
+    if (imageUrl && !imageUrl.startsWith('http')) {
+      imageUrl = 'https://goskatalog.ru' + imageUrl;
+    }
+
+    if (!imageUrl || !imageUrl.includes('/muzfo-imaginator/rest/images/')) {
+      return;
+    }
+
+    // Извлекаем originalName из URL
+    const urlParams = new URLSearchParams(new URL(imageUrl).search);
+    const originalName = urlParams.get('originalName') || imageUrl;
+
+    if (seenOriginalNames.has(originalName)) {
+      console.log(`Дубликат изображения ${index + 1}: ${imageUrl} (originalName: ${originalName})`);
+      return;
+    }
+
+    seenOriginalNames.add(originalName);
+    imageUrls.push(imageUrl);
+    console.log(`Извлечённый URL изображения ${imageUrls.length}: ${imageUrl} (originalName: ${originalName})`);
+  });
+
+  console.log(`Всего извлечено уникальных изображений: ${imageUrls.length}`, imageUrls);
 
   if (imageUrls.length === 0) {
     throw new Error("Извлечены пустые или некорректные URL-адреса изображений.");
