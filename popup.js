@@ -721,7 +721,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
-  /** Проверяет, актуальна ли версия расширения, по GitHub */
+ /** Проверяет, актуальна ли версия расширения, по GitHub */
 async function checkVersionFromUpdatesXml() {
   const updatesUrl = 'https://AfterLifeRUS.github.io/webarchivist/updates.xml';
   const listEl = document.getElementById('messageList');
@@ -751,30 +751,36 @@ async function checkVersionFromUpdatesXml() {
     console.log(`Текущая версия расширения: ${currentVersion}`);
     console.log(`Последняя версия из updates.xml: ${latestVersion}`);
 
+    function isNewerVersion(current, latest) {
+      const currentParts = current.split('.').map(Number);
+      const latestParts = latest.split('.').map(Number);
+
+      for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
+        const currentPart = currentParts[i] || 0;
+        const latestPart = latestParts[i] || 0;
+        if (latestPart > currentPart) return true;
+        if (latestPart < currentPart) return false;
+      }
+      return false;
+    }
+
     const statusLi = document.createElement('li');
-    if (currentVersion === latestVersion) {
-      statusLi.textContent = `Версия актуальная: ${currentVersion}`;
-      statusLi.style.color = 'green';
-    } else {
+    if (isNewerVersion(currentVersion, latestVersion)) {
       statusLi.textContent = `Доступна новая версия: ${latestVersion} (у вас ${currentVersion})`;
       statusLi.style.color = 'orange';
-    }
-	
-	
-	if (currentVersion !== latestVersion) {
-		statusLi.textContent = `Доступна новая версия: ${latestVersion} (у вас ${currentVersion})`;
-		statusLi.style.color = 'orange';
 
-		const updateButton = document.createElement('button');
-		updateButton.textContent = "Обновить расширение";
-		updateButton.style.marginTop = '10px';
-		updateButton.addEventListener('click', () => {
-		// лучше сразу показать подсказку:
-		alert("На странице расширений нажмите кнопку «Обновить» в режиме разработчика");
-		chrome.tabs.create({ url: "chrome://extensions/?id=" + chrome.runtime.id });
-});
-		listEl.appendChild(updateButton);
-	}
+      const updateButton = document.createElement('button');
+      updateButton.textContent = "Обновить";
+      updateButton.style.marginTop = '10px';
+      updateButton.addEventListener('click', () => {
+        alert("Загрузите новую версию в репозитории на GitHub");
+        chrome.tabs.create({ url: "https://github.com/AfterLifeRUS/webarchivist" });
+      });
+      listEl.appendChild(updateButton);
+    } else {
+      statusLi.textContent = `Версия актуальная: ${currentVersion}`;
+      statusLi.style.color = 'green';
+    }
 
     if (listEl) {
       listEl.appendChild(statusLi);
@@ -782,15 +788,13 @@ async function checkVersionFromUpdatesXml() {
 
   } catch (error) {
     console.error("Ошибка проверки версии через updates.xml:", error);
-    const listEl = document.getElementById('messageList');
-    if (listEl) {
-      const statusLi = document.createElement('li');
-      statusLi.textContent = "Не удалось проверить обновления.";
-      statusLi.style.color = 'red';
-      listEl.appendChild(statusLi);
-    }
+    const statusLi = document.createElement('li');
+    statusLi.textContent = "Не удалось проверить обновления.";
+    statusLi.style.color = 'red';
+    listEl.appendChild(statusLi);
   }
 }
+
 
 
 
