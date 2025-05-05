@@ -39,9 +39,11 @@
       "https://ya.ru/archive/*",
       "https://yandex.ru/archive/*",
       "https://goskatalog.ru/portal/*",         
-      "https://catalog.shm.ru/*"      
+      "https://catalog.shm.ru/*",
+	  "https://www.prlib.ru/item/*"
     ],
-      "js": ["contentScript.js"]
+      "js": ["contentScript.js"],
+	  "run_at": "document_idle"
     }
   ]
 }

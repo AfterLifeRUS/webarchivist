@@ -1,3 +1,108 @@
+function getTotalPagesPr() {
+    const numPagesElement = document.querySelector('#diva-1-num-pages');
+    
+    if (!numPagesElement) {
+        console.log('Элемент с id="diva-1-num-pages" не найден');
+        // Проверяем альтернативные элементы
+        const altElements = document.querySelectorAll('[id*="num-pages"]');
+        if (altElements.length > 0) {
+            console.log('Найдены альтернативные элементы с "num-pages" в id:', altElements.length);
+            for (const el of altElements) {
+                const text = el.textContent.trim();
+                const num = parseInt(text, 10);
+                if (!isNaN(num) && num > 0) {
+                    console.log(`Извлечено количество страниц из ${el.id}: ${num}`);
+                    return num;
+                }
+                console.log(`Содержимое ${el.id}: ${text} (не число)`);
+            }
+        }
+        return null;
+    }
+
+    const numPagesText = numPagesElement.textContent.trim();
+    console.log('Содержимое элемента diva-1-num-pages:', numPagesText);
+
+    const numPages = parseInt(numPagesText, 10);
+
+    if (isNaN(numPages) || numPages <= 0) {
+        console.log('Некорректное количество страниц:', numPagesText);
+        return null;
+    }
+
+    console.log('Извлеченное количество страниц:', numPages);
+    return numPages;
+}
+
+
+
+// Функция для извлечения данных из мета-тега
+function extractDocumentInfo() {
+    const metaTag = document.querySelector('meta[property="og:image"]');
+    
+    if (!metaTag) {
+        console.log('Мета-тег og:image не найден');
+        return null;
+    }
+
+    const content = metaTag.getAttribute('content');
+    
+    if (!content) {
+        console.log('Атрибут content пустой');
+        return null;
+    }
+
+    console.log('Найден content:', content);
+
+    const regex = /\/book_preview\/([^\/]+)\/(\d+)_doc/;
+    const match = content.match(regex);
+
+    if (!match) {
+        console.log('Не удалось извлечь данные из content:', content);
+        return null;
+    }
+
+    const documentKey = match[1].toUpperCase();
+    const documentNumber = match[2].toUpperCase();
+
+    return {
+        documentKey,
+        documentNumber
+    };
+}
+
+// Обработка сообщений от popup или background
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('Получено сообщение в contentScript.js:', message);
+    
+    if (message.type === 'getDocumentInfo') {
+        const result = extractDocumentInfo();
+        
+        if (result) {
+            sendResponse({ status: 'success', data: result });
+        } else {
+            const observer = new MutationObserver(() => {
+                const newResult = extractDocumentInfo();
+                if (newResult) {
+                    observer.disconnect();
+                    sendResponse({ status: 'success', data: newResult });
+                }
+            });
+
+            observer.observe(document, { childList: true, subtree: true });
+            return true;
+        }
+    } else if (message.type === 'getTotalPagesPr') {
+        const totalPages = getTotalPagesPr();
+        
+        if (totalPages !== null) {
+            sendResponse({ status: 'success', data: totalPages });
+        } else {
+            sendResponse({ status: 'error', error: 'Не удалось извлечь количество страниц' });
+        }
+    }
+});
+
 // Функция для извлечения заголовка
 function getTitle() {
   const rawTitle = document.title.split(" — ")[0]?.trim() || document.title.trim();

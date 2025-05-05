@@ -116,6 +116,7 @@
 
     #messageList li {
       margin-bottom: 8px;
+	  white-space: pre-line;
     }
 
     #messageList::-webkit-scrollbar {
@@ -140,14 +141,14 @@
 
   <!-- Кнопки -->
   <div class="button-group">
-    <button id="downloadBtn">Скачать текущую страницу</button>
-    <button id="downloadAllBtn">Скачать весь документ</button>
+    <button id="downloadBtn" style="display: none;">Скачать текущую страницу</button>
+    <button id="downloadAllBtn" style="display: none;">Скачать весь документ</button>
 	<button id="downloadLotBtn" style="display: none;">Скачать лот</button>
-
+	<button id="downloadPageBtn" style="display: none;">Скачать</button>	
   </div>
 
   <!-- Диапазон страниц -->
-  <div class="range-input">
+  <div class="range-input" style="display: none;">
     <div class="range-input__row">
       <label for="startPage">С:</label>
       <input type="number" id="startPage" min="1" value="1">
@@ -155,10 +156,10 @@
       <input type="number" id="endPage" min="1">
     </div>
     <div class="range-input__row">
-      <input type="checkbox" id="zipMode">
+      <input type="checkbox" id="zipMode" style="display: none;">
       <label for="zipMode">Скачать как ZIP</label>
     </div>
-    <button id="downloadRangeBtn">Скачать диапазон</button>
+    <button id="downloadRangeBtn"  style="display: none;">Скачать диапазон</button>
 
   </div>
 

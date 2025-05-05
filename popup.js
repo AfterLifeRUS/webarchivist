@@ -117,6 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const downloadLotBtn = document.getElementById("downloadLotBtn");
   const downloadAllBtn = document.getElementById("downloadAllBtn");
   const downloadRangeBtn = document.getElementById("downloadRangeBtn");
+  const downloadPageBtn = document.getElementById("downloadPageBtn");
   const startInput = document.getElementById("startPage");
   const endInput = document.getElementById("endPage");
   const zipCheckbox = document.getElementById("zipMode");
@@ -187,8 +188,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const url = tab.url || "";
       const isYandexArchive = /^https:\/\/(ya\.ru|yandex\.ru)\/archive/.test(url);
       const isGoskatalog = /^https:\/\/goskatalog\.ru\/portal\/#\/collections/.test(url);
+	  const isPrlib = /^https:\/\/www\.prlib\.ru\/item\/\d+$/.test(url);
+	  
       console.log("Яндекс.Архив:", isYandexArchive);
       console.log("Госкаталог:", isGoskatalog);
+      console.log("Президентская библиотека:", isPrlib);	  
 
       // 1) Устанавливаем заголовок и видимость контролов
       if (isYandexArchive) {
@@ -214,19 +218,69 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       } else if (isGoskatalog) {
         header.textContent = "Госкаталог.рф";
-        YAControls.forEach(el => { el.style.display = "none"; }); // Скрываем контролы ЯА
         downloadLotBtn.style.display = ""; // Показываем кнопку ГК
         setStatus("Готово к скачиванию лота.");
-      } else {
+            } else 
+				if (isPrlib) {
+                header.textContent = "Президентская библиотека";
+                if (downloadPageBtn) {
+                    downloadPageBtn.style.display = "";
+                    downloadPageBtn.disabled = true;
+                } else {
+                    console.error("Кнопка downloadPageBtn не найдена");
+                }
+				
+				rangeInputContainer.style.display = "";
+				downloadRangeBtn.display = "none";
+				zipMode.display = "none";
+				document.querySelector('label[for="zipMode"]').style.display = "none";
+				
+				
+				
+                setStatus("Получение данных документа...");
+
+                try {
+                    if (tab.status !== 'complete') {
+                        await new Promise((resolve) => {
+                            const listener = (tabId, changeInfo) => {
+                                if (tabId === tab.id && changeInfo.status === 'complete') {
+                                    chrome.tabs.onUpdated.removeListener(listener);
+                                    resolve();
+                                }
+                            };
+                            chrome.tabs.onUpdated.addListener(listener);
+                        });
+                    }
+
+                    const docResponse = await sendMessageToTab(tab.id, { type: "getDocumentInfo" });
+                    const totalPages = await fetchTotalPages(tab.id);
+
+                    if (docResponse.status === 'success' && docResponse.data) {
+                        const { documentKey, documentNumber } = docResponse.data;
+                        console.log('Извлеченный documentKey:', documentKey);
+                        let statusMessage = `Ключ документа: ${documentKey}\nНомер документа: ${documentNumber}`;
+                        if (totalPages !== null) {
+                            statusMessage += `\nКоличество страниц: ${totalPages}`;
+                        } else {
+                            statusMessage += `\nКоличество страниц: неизвестно (проверьте, загрузилась ли страница полностью)`;
+                        }
+                        setStatus(statusMessage);
+                        if (downloadPageBtn) downloadPageBtn.disabled = false;
+                    } else {
+                        setStatus("Не удалось извлечь информацию о документе.", true);
+                    }
+                } catch (error) {
+                    console.error("Ошибка получения данных документа:", error);
+                    setStatus(`Ошибка получения данных документа: ${error.message}`, true);
+                }
+            } else {
         header.textContent = "Неподдерживаемый сайт";
-        YAControls.forEach(el => { el.style.display = "none"; });
-        downloadLotBtn.style.display = "none";
         setStatus("Откройте поддерживаемый сайт.", true);
         return; // Больше ничего не делаем
       }
 
       // 2) Добавляем обработчики событий
-      setupEventListeners(isYandexArchive, isGoskatalog);
+		setupEventListeners(isYandexArchive, isGoskatalog, isPrlib);
 
       setControlsEnabled(true); // Включаем контролы после инициализации
       // Статус уже установлен выше в зависимости от сайта
@@ -239,7 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // --- Установка обработчиков событий ---
-  function setupEventListeners(isYandexArchive, isGoskatalog) {
+  function setupEventListeners(isYandexArchive, isGoskatalog, isPrlib) {
     if (isYandexArchive) {
       if (downloadBtn) downloadBtn.addEventListener("click", handleDownloadCurrent);
       if (downloadAllBtn) downloadAllBtn.addEventListener("click", handleDownloadAll);
@@ -249,7 +303,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (isGoskatalog) {
       if (downloadLotBtn) downloadLotBtn.addEventListener("click", handleDownloadLot);
     }
+	
+	        if (isPrlib) {
+            if (downloadPageBtn) downloadPageBtn.addEventListener("click", handleDownloadPage);
+        }
   }
+
 
   // --- Функции запроса данных ---
   async function requestPageInfo() {
@@ -291,6 +350,9 @@ document.addEventListener('DOMContentLoaded', () => {
       throw error;
     }
   }
+
+
+
 
   // --- Логика скачивания ---
 
@@ -486,6 +548,225 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  
+    // --- Получение данных из info.json ---
+    async function fetchImageInfo(documentKey, documentNumber) {
+        console.log('Формирование ссылки info.json для documentKey:', documentKey);
+        const infoUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?IIIF=/var/data/scans/public/${documentKey}/0/${documentNumber}_doc1.tiff/info.json`;
+        
+        return new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({ type: 'fetchJson', url: infoUrl }, (response) => {
+                if (response.status !== 'success') {
+                    return reject(new Error(`Ошибка загрузки info.json: ${response.error || 'Неизвестная ошибка'}`));
+                }
+                const { width, height } = response.data;
+                if (!width || !height) {
+                    return reject(new Error('Некорректные данные в info.json: width или height отсутствуют'));
+                }
+                console.log('Получены размеры изображения:', { width, height });
+                resolve({ width, height });
+            });
+        });
+    }
+
+
+    // --- Проверка доступности JTL уровня ---
+    async function findMaxJtlLevel(documentKey, documentNumber) {
+        const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/0/${documentNumber}_doc1.tiff&JTL=`;
+        
+        for (let level = 10; level >= 1; level--) {
+            const testUrl = `${baseUrl}${level},0`;
+            console.log(`Проверка JTL уровня ${level}: ${testUrl}`);
+            try {
+                const response = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage({ type: 'fetchTile', url: testUrl }, (response) => {
+                        if (response.status === 'success' && response.contentType && response.contentType.startsWith('image/')) {
+                            resolve(response);
+                        } else {
+                            reject(new Error(response.error || `JTL уровень ${level} не возвращает изображение`));
+                        }
+                    });
+                });
+                console.log(`JTL уровень ${level} возвращает изображение (Content-Type: ${response.contentType})`);
+                return level;
+            } catch (error) {
+                console.log(`JTL уровень ${level} недоступен: ${error.message}`);
+            }
+        }
+        
+        throw new Error('Не найден доступный JTL уровень, возвращающий изображение');
+    }
+
+async function fetchTotalPages(tabId) {
+    try {
+        const response = await new Promise((resolve, reject) => {
+            chrome.tabs.sendMessage(tabId, { type: "getTotalPagesPr" }, (response) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                } else {
+                    resolve(response);
+                }
+            });
+        });
+        if (response.status === 'success') {
+            console.log('Количество страниц:', response.data);
+            return response.data;
+        } else {
+            throw new Error(response.error || 'Не удалось получить количество страниц');
+        }
+    } catch (error) {
+        console.error('Ошибка получения количества страниц:', error);
+        return null;
+    }
+}	
+  
+  
+     // --- Функция загрузки изображения из тайлов ---
+    async function downloadTiledImage(documentKey, documentNumber) {
+        console.log('Используемый documentKey:', documentKey);
+        
+        // Получаем размеры изображения из info.json
+        setStatus("Получение размеров изображения...");
+        const { width, height } = await fetchImageInfo(documentKey, documentNumber);
+		
+		// Находим наибольший доступный JTL уровень
+        setStatus("Поиск оптимального JTL уровня...");
+        const jtlLevel = await findMaxJtlLevel(documentKey, documentNumber);
+        console.log(`Используется JTL уровень: ${jtlLevel}`);
+
+        // Предполагаемый размер тайла (можно уточнить, если известен)
+        const tileSize = 256; // Стандартный размер тайла для IIIF
+        const cols = Math.ceil(width / tileSize);
+        const rows = Math.ceil(height / tileSize);
+        const totalTiles = cols * rows;
+
+        console.log(`Вычисленные параметры: cols=${cols}, rows=${rows}, totalTiles=${totalTiles}`);
+
+        const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/0/${documentNumber}_doc1.tiff&JTL=${jtlLevel},`;
+
+        return new Promise((resolve, reject) => {
+            setStatus("Загрузка первого тайла для определения размеров...");
+            
+            chrome.runtime.sendMessage({ type: 'fetchTile', url: baseUrl + '0' }, (response) => {
+                if (response.status !== 'success') {
+                    return reject(new Error("Ошибка загрузки первого тайла"));
+                }
+
+                const firstTile = new Image();
+                firstTile.onload = function() {
+                    const tileWidth = firstTile.width;
+                    const tileHeight = firstTile.height;
+
+                    setStatus(`Создание canvas (${width}x${height})...`);
+                    
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+
+                    let loadedTiles = 0;
+
+                    for (let i = 0; i < totalTiles; i++) {
+                        chrome.runtime.sendMessage({ type: 'fetchTile', url: baseUrl + i }, (tileResponse) => {
+                            if (tileResponse.status !== 'success') {
+                                return reject(new Error(`Ошибка загрузки тайла ${i}`));
+                            }
+
+                            const tileImg = new Image();
+                            tileImg.onload = function() {
+                                const row = Math.floor(i / cols);
+                                const col = i % cols;
+                                ctx.drawImage(tileImg, col * tileWidth, row * tileHeight);
+                                loadedTiles++;
+                                setStatus(`Загружено ${loadedTiles}/${totalTiles} тайлов...`);
+
+                                if (loadedTiles === totalTiles) {
+                                    setStatus("Сохранение изображения...");
+                                    const dataUrl = canvas.toDataURL('image/jpeg');
+                                    const filename = truncateFilename(`${documentKey}_${documentNumber}.jpg`);
+                                    
+                                    chrome.downloads.download({
+                                        url: dataUrl,
+                                        filename: filename
+                                    }, (downloadId) => {
+                                        if (chrome.runtime.lastError) {
+                                            reject(new Error(`Ошибка скачивания: ${chrome.runtime.lastError.message}`));
+                                        } else if (downloadId) {
+                                            setStatus("Изображение успешно скачано!");
+                                            resolve(downloadId);
+                                        } else {
+                                            reject(new Error("Скачивание не удалось."));
+                                        }
+                                    });
+                                }
+                            };
+                            tileImg.onerror = function() {
+                                reject(new Error(`Ошибка загрузки тайла ${i}`));
+                            };
+                            tileImg.src = tileResponse.data;
+                        });
+                    }
+                };
+                firstTile.onerror = function() {
+                    reject(new Error("Ошибка загрузки первого тайла"));
+                };
+                firstTile.src = response.data;
+            });
+        });
+    }
+  
+    // --- Обработчик скачивания страницы ---
+async function handleDownloadPage() {
+    clearStatus();
+    if (downloadPageBtn) downloadPageBtn.disabled = true;
+    setStatus("Получение данных документа...");
+
+    try {
+        // Получаем активную вкладку и информацию о документе
+        const tab = await getActiveTab();
+        const response = await sendMessageToTab(tab.id, { type: "getDocumentInfo" });
+
+        if (response.status !== 'success' || !response.data) {
+            throw new Error("Не удалось получить данные документа.");
+        }
+
+        const documentKey = response.data.documentKey;
+        // Поскольку documentNumber может приходить строкой, приводим к числу
+        const documentNumber = parseInt(response.data.documentNumber, 10);
+        if (isNaN(documentNumber)) {
+            throw new Error("Неверный номер документа: не число.");
+        }
+        setStatus(`Ключ документа: ${documentKey}\nНомер документа: ${documentNumber}`);
+
+        // Читаем диапазон страниц из полей ввода (ID из HTML: startPage, endPage)
+        const startInput = document.querySelector('#startPage');
+        const endInput   = document.querySelector('#endPage');
+        const startPage = startInput ? parseInt(startInput.value, 10) : 1;
+        const endPage   = endInput   ? parseInt(endInput.value, 10)   : startPage;
+
+        if (isNaN(startPage) || isNaN(endPage) || startPage < 1 || endPage < startPage) {
+            throw new Error("Неверный диапазон страниц.");
+        }
+
+        setStatus(`Скачиваем страницы ${startPage} – ${endPage}...`);
+
+        // Итеративно скачиваем каждую страницу
+        for (let page = startPage; page <= endPage; page++) {
+            // Суммируем как числа
+            const pageNumber = documentNumber + page - 1;
+            setStatus(`Скачивание страницы ${page} (номер ${pageNumber})...`);
+            await downloadTiledImage(documentKey, pageNumber);
+        }
+
+        showNotification("Скачивание завершено", `Страницы ${startPage}–${endPage} скачаны!`);
+    } catch (error) {
+        console.error("Ошибка скачивания изображения:", error);
+        setStatus(`Ошибка: ${error.message}`, true);
+    } finally {
+        if (downloadPageBtn) downloadPageBtn.disabled = false;
+    }
+}
+  
   /**
    * Обрабатывает скачивание диапазона страниц (как ZIP или по отдельности).
    * @param {number} startPage - Начальная страница.

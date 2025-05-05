@@ -16,6 +16,47 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   }
 });
 
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'fetchTile') {
+        fetch(message.url, { mode: 'cors' })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ошибка: ${response.status}`);
+                }
+                const contentType = response.headers.get('Content-Type') || '';
+                return response.blob().then(blob => ({ blob, contentType }));
+            })
+            .then(({ blob, contentType }) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    sendResponse({ status: 'success', data: reader.result, contentType });
+                };
+                reader.readAsDataURL(blob);
+            })
+            .catch(error => {
+                sendResponse({ status: 'error', error: error.message });
+            });
+        return true; // Асинхронный ответ
+    } else if (message.type === 'fetchJson') {
+        fetch(message.url, { mode: 'cors' })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ошибка: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                sendResponse({ status: 'success', data });
+            })
+            .catch(error => {
+                sendResponse({ status: 'error', error: error.message });
+            });
+        return true; // Асинхронный ответ
+    }
+});
+
+
 chrome.webRequest.onCompleted.addListener(
   details => {
     if (!details.url.includes("type=original")) return;
