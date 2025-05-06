@@ -1041,7 +1041,7 @@ async function handleDownloadPage() {
   
 /** Проверяет, актуальна ли версия расширения, по manifest.json в репозитории */
 async function checkVersionFromManifest() {
-  const manifestUrl = 'https://raw.githubusercontent.com/AfterLifeRUS/webarchivist/main/manifest.json';
+  const manifestUrl = 'https://afterliferus.github.io/webarchivist/manifest.json';
   const listEl = document.getElementById('messageList');
 
   try {

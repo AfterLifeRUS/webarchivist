@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ВебАрхивист",
-  "version": "0.3.4.3",
+  "version": "0.3.4.4",
   "description": "Позволяет автоматизировать скачивание изображений из различных сервисов",
 "permissions": [
     "webRequest",
@@ -11,7 +11,6 @@
     "notifications",
 	"https://afterliferus.github.io/*"
   ],
-  "update_url": "https://afterliferus.github.io/webarchivist/updates.xml",
 
   "host_permissions": [
     "https://ya.ru/archive/*",
