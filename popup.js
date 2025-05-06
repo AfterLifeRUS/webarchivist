@@ -238,58 +238,65 @@ function setStatus(text, isError = false) {
         setStatus("Готово к скачиванию лота.");
             } else 
 				if (isPrlib) {
-                header.textContent = "Президентская библиотека";
-                if (downloadPageBtn) {
-                    downloadPageBtn.style.display = "";
-                    downloadPageBtn.disabled = true;
-                } else {
-                    console.error("Кнопка downloadPageBtn не найдена");
-                }
-				
-				rangeInputContainer.style.display = "";
-				downloadRangeBtn.display = "none";
-				zipMode.display = "none";
-				document.querySelector('label[for="zipMode"]').style.display = "none";
-				
-				
-				
-                setStatus("Получение данных документа...");
+    header.textContent = "Президентская библиотека";
 
-                try {
-                    if (tab.status !== 'complete') {
-                        await new Promise((resolve) => {
-                            const listener = (tabId, changeInfo) => {
-                                if (tabId === tab.id && changeInfo.status === 'complete') {
-                                    chrome.tabs.onUpdated.removeListener(listener);
-                                    resolve();
-                                }
-                            };
-                            chrome.tabs.onUpdated.addListener(listener);
-                        });
+    if (downloadPageBtn) {
+        downloadPageBtn.style.display = "";
+        downloadPageBtn.disabled = true;
+    } else {
+        console.error("Кнопка downloadPageBtn не найдена");
+    }
+
+    rangeInputContainer.style.display = "";
+    downloadRangeBtn.style.display = "none";
+    zipMode.style.display = "none";
+    document.querySelector('label[for="zipMode"]').style.display = "none";
+
+    setStatus("Получение данных документа...");
+
+    try {
+        if (tab.status !== 'complete') {
+            await new Promise((resolve) => {
+                const listener = (tabId, changeInfo) => {
+                    if (tabId === tab.id && changeInfo.status === 'complete') {
+                        chrome.tabs.onUpdated.removeListener(listener);
+                        resolve();
                     }
+                };
+                chrome.tabs.onUpdated.addListener(listener);
+            });
+        }
 
-                    const docResponse = await sendMessageToTab(tab.id, { type: "getDocumentInfo" });
-                    const totalPages = await fetchTotalPages(tab.id);
+        const docResponse = await sendMessageToTab(tab.id, { type: "getDocumentInfo" });
 
-                    if (docResponse.status === 'success' && docResponse.data) {
-                        const { documentKey, documentNumber } = docResponse.data;
-                        console.log('Извлеченный documentKey:', documentKey);
-                        let statusMessage = `Ключ документа: ${documentKey}\nНомер документа: ${documentNumber}`;
-                        if (totalPages !== null) {
-                            statusMessage += `\nКоличество страниц: ${totalPages}`;
-                        } else {
-                            statusMessage += `\nКоличество страниц: неизвестно (проверьте, загрузилась ли страница полностью)`;
-                        }
-                        setStatus(statusMessage);
-                        if (downloadPageBtn) downloadPageBtn.disabled = false;
-                    } else {
-                        setStatus("Не удалось извлечь информацию о документе.", true);
-                    }
-                } catch (error) {
-                    console.error("Ошибка получения данных документа:", error);
-                    setStatus(`Ошибка получения данных документа: ${error.message}`, true);
-                }
-            } else {
+        if (docResponse.status === 'success' && docResponse.data) {
+            const { objectDataUrl, itemTitle, pageCount, files } = docResponse.data;
+
+            let statusMessage = `Название документа: ${itemTitle || 'неизвестно'}`;
+            statusMessage += `\nКоличество страниц: ${pageCount ?? 'неизвестно'}`;
+            statusMessage += `\nСсылка на JSON: ${objectDataUrl}`;
+
+            setStatus(statusMessage);
+			
+			setStatus("Данные получены, готово к скачиванию");
+
+            // сохраняем полученные данные в глобальные переменные или стейт (если нужно)
+            currentDocumentInfo = {
+                objectDataUrl,
+                itemTitle,
+                pageCount,
+                files
+            };
+
+            if (downloadPageBtn) downloadPageBtn.disabled = false;
+        } else {
+            setStatus("Не удалось извлечь информацию о документе.", true);
+        }
+    } catch (error) {
+        console.error("Ошибка получения данных документа:", error);
+        setStatus(`Ошибка получения данных документа: ${error.message}`, true);
+    }
+} else {
         header.textContent = "Неподдерживаемый сайт";
         setStatus('SUPPORTED_SITES', true);
         return; // Больше ничего не делаем
@@ -568,7 +575,7 @@ function setStatus(text, isError = false) {
     // --- Получение данных из info.json ---
 	async function fetchImageInfo(documentKey, documentNumber, documentFileGroup) {
         console.log('Формирование ссылки info.json для documentKey:', documentKey);
-        const infoUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?IIIF=/var/data/scans/public/${documentKey}/${documentFileGroup}/${documentNumber}.tiff/info.json`;
+        const infoUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?IIIF=/var/data/scans/public/${documentKey}/${documentFileGroup}/${documentNumber}/info.json`;
         
         return new Promise((resolve, reject) => {
             chrome.runtime.sendMessage({ type: 'fetchJson', url: infoUrl }, (response) => {
@@ -588,7 +595,7 @@ function setStatus(text, isError = false) {
 
     // --- Проверка доступности JTL уровня ---
     async function findMaxJtlLevel(documentKey, documentNumber, documentFileGroup) {
-        const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/${documentFileGroup}/${documentNumber}.tiff&JTL=`;
+        const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/${documentFileGroup}/${documentNumber}&JTL=`;
         
         for (let level = 10; level >= 1; level--) {
             const testUrl = `${baseUrl}${level},0`;
@@ -658,7 +665,7 @@ async function fetchTotalPages(tabId) {
 
         console.log(`Вычисленные параметры: cols=${cols}, rows=${rows}, totalTiles=${totalTiles}`);
 
-        const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/${documentFileGroup}/${documentNumber}.tiff&JTL=${jtlLevel},`;
+        const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/${documentFileGroup}/${documentNumber}&JTL=${jtlLevel},`;
 
         return new Promise((resolve, reject) => {
             setStatus("Загрузка первого тайла для определения размеров...");
@@ -732,13 +739,14 @@ async function fetchTotalPages(tabId) {
     }
   
     // --- Обработчик скачивания страницы ---
+// --- Обработчик скачивания документа ---
 async function handleDownloadPage() {
     clearStatus();
     if (downloadPageBtn) downloadPageBtn.disabled = true;
-    setStatus("Получение данных документа...");
+    setStatus("Начало загрузки документа...");
 
     try {
-        // Получаем активную вкладку и информацию о документе
+        // 1. Получаем активную вкладку и ранее сохранённую информацию о документе
         const tab = await getActiveTab();
         const response = await sendMessageToTab(tab.id, { type: "getDocumentInfo" });
 
@@ -746,29 +754,24 @@ async function handleDownloadPage() {
             throw new Error("Не удалось получить данные документа.");
         }
 
-        const documentKey = response.data.documentKey;
-        const documentNumberStr = response.data.documentNumber;
-        const documentFileGroup = response.data.fileGroup;		
-        // documentNumberStr, например, "5079094_doc1_92E47A28-07FB-4D3D-BFBC-3C50E07A3330"
+        // 2. Распаковываем всё, что нам нужно
+        const {
+            itemTitle,    // GUID документа, раньше documentKey
+            files,        // массив имён файлов из JSON
+            fileGroup     // параметр fileGroup
+        } = response.data;
 
-        // Разделяем на числовую часть и суффикс
-        const parts = documentNumberStr.match(/^(\d+)(.*)$/);
-        if (!parts) {
-            throw new Error(`Неверный формат documentNumber: ${documentNumberStr}`);
-        }
-        const baseNumberStr = parts[1];       // "5079094"
-        const suffix        = parts[2];       // "_doc1_92E47A28-07FB-4D3D-BFBC-3C50E07A3330"
-        const baseNumber    = parseInt(baseNumberStr, 10);
-        if (isNaN(baseNumber)) {
-            throw new Error(`Неверный номер документа: ${baseNumberStr}`);
+        if (!Array.isArray(files) || files.length === 0) {
+            throw new Error("Нет файлов для загрузки.");
         }
 
         setStatus(
-            `Ключ документа: ${documentKey}\n` +
-            `Исходный идентификатор: ${documentNumberStr}`
+            `Название документа: ${itemTitle}\n` +
+            `FileGroup: ${fileGroup}\n` +
+            `Всего страниц: ${files.length}`
         );
 
-        // Читаем диапазон страниц из полей ввода
+        // 3. Читаем диапазон страниц из полей ввода
         const startInput = document.querySelector('#startPage');
         const endInput   = document.querySelector('#endPage');
         const startPage = startInput ? parseInt(startInput.value, 10) : 1;
@@ -776,19 +779,20 @@ async function handleDownloadPage() {
 
         if (
             isNaN(startPage) || isNaN(endPage) ||
-            startPage < 1 || endPage < startPage
+            startPage < 1 || endPage < startPage ||
+            endPage > files.length
         ) {
             throw new Error("Неверный диапазон страниц.");
         }
 
         setStatus(`Скачиваем страницы ${startPage}–${endPage}...`);
 
-        // Итеративно скачиваем каждую страницу
+        // 4. Итеративно скачиваем каждую страницу из массива files
         for (let page = startPage; page <= endPage; page++) {
-            const computedNumber    = baseNumber + (page - 1);
-            const docNumWithSuffix  = `${computedNumber}${suffix}`;
-            setStatus(`Скачивание страницы ${page} (номер ${docNumWithSuffix})...`);
-            await downloadTiledImage(documentKey, docNumWithSuffix, documentFileGroup);
+            const fileName = files[page - 1]; // т. е. "14996510_doc1.tiff" и т. д.
+            setStatus(`Скачивание страницы ${page} (файл ${fileName})...`);
+            // downloadTiledImage(documentKey, docNumWithSuffix, fileGroup)
+            await downloadTiledImage(itemTitle, fileName, fileGroup);
         }
 
         showNotification(
@@ -796,12 +800,13 @@ async function handleDownloadPage() {
             `Страницы ${startPage}–${endPage} успешно скачаны!`
         );
     } catch (error) {
-        console.error("Ошибка скачивания изображения:", error);
+        console.error("Ошибка скачивания документа:", error);
         setStatus(`Ошибка: ${error.message}`, true);
     } finally {
         if (downloadPageBtn) downloadPageBtn.disabled = false;
     }
 }
+
 
   
   /**

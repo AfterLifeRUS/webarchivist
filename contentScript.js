@@ -36,87 +36,138 @@ function getTotalPagesPr() {
 
 
 
-// Функция для извлечения данных из мета-тега и параметра data-filegroup
+// Функция для извлечения URL JSON-а (objectData) из Drupal.settings.diva
 function extractDocumentInfo() {
-    // 1. Извлекаем URL изображения из meta[property="og:image"]
-    const metaTag = document.querySelector('meta[property="og:image"]');
-    if (!metaTag) {
-        console.log('Мета-тег og:image не найден');
-        return null;
-    }
-    const content = metaTag.getAttribute('content');
-    if (!content) {
-        console.log('Атрибут content пустой');
-        return null;
-    }
-    console.log('Найден content:', content);
+  const scriptTags = Array.from(document.querySelectorAll('script'));
+  let settingsText = null;
 
-    // 2. Извлекаем ключ (папку) между /book_preview/ и следующим /
-    const keyMatch = content.match(/\/book_preview\/([^\/]+)\//);
-    if (!keyMatch) {
-        console.log('Не удалось извлечь documentKey из content:', content);
-        return null;
+  for (const s of scriptTags) {
+    if (s.textContent.includes('Drupal.settings') && s.textContent.includes('diva')) {
+      settingsText = s.textContent;
+      break;
     }
-    const documentKey = keyMatch[1].toUpperCase();
+  }
 
-    // 3. Извлекаем имя файла (всё после последнего / и до .jpg)
-    const fileMatch = content.match(/\/([^\/]+)\.jpg$/);
-    if (!fileMatch) {
-        console.log('Не удалось извлечь documentNumber из content:', content);
-        return null;
-    }
-    const documentNumber = fileMatch[1];  // например "5079094_doc1_..."
+  if (!settingsText) {
+    console.error('Скрипт с Drupal.settings.diva не найден');
+    return null;
+  }
 
-    // 4. Находим элемент с data-filegroup и забираем его значение
-    //    Ищем <div id="bookmark-modal-... " data-filegroup="...">
-    const bookmarkDiv = document.querySelector('div[id^="bookmark-modal-"][data-filegroup]');
-    let fileGroup = null;
-    if (bookmarkDiv) {
-        fileGroup = bookmarkDiv.getAttribute('data-filegroup');  // например "5079093"
-        console.log('Найден data-filegroup:', fileGroup);
-    } else {
-        console.warn('Элемент с data-filegroup не найден');
-    }
+  const jsonMatch = settingsText.match(/jQuery\.extend\(Drupal\.settings,\s*(\{[\s\S]*?\})\);/);
+  if (!jsonMatch) {
+    console.error('Не удалось распарсить объект Drupal.settings');
+    return null;
+  }
 
-    // 5. Возвращаем все три значения
-    return {
-        documentKey,
-        documentNumber,
-        fileGroup
-    };
+  let settings;
+  try {
+    settings = JSON.parse(jsonMatch[1]);
+  } catch (e) {
+    console.error('JSON.parse failed:', e);
+    return null;
+  }
+
+  const diva = settings.diva;
+  const instance = diva && (diva['1'] || diva[1]);
+  const objectDataUrl = instance?.options?.objectData || null;
+  if (!objectDataUrl) {
+    console.error('diva.options.objectData не найден');
+    return null;
+  }
+
+  // Извлекаем fileGroup из URL: число между двумя GUID-частями
+  // Пример URL:
+  // https://.../public/2EF2B24D-EBAA-434A-8F39-87C883AD1567/5079093/2EF2B24D-EBAA-434A-8F39-87C883AD1567.json
+  const fgMatch = objectDataUrl.match(/\/public\/[^\/]+\/(\d+)\/[^\/]+\.json$/);
+  const fileGroup = fgMatch ? fgMatch[1] : null;
+  if (!fileGroup) {
+    console.warn('Не удалось извлечь fileGroup из objectDataUrl');
+  }
+
+  return {
+    objectDataUrl,
+    fileGroup
+  };
 }
 
 
+// Функция для загрузки JSON-а и извлечения метаданных
+async function getDocumentMetadata(objectDataUrl) {
+  const resp = await fetch(objectDataUrl, { cache: 'no-cache' });
+  if (!resp.ok) throw new Error(`Ошибка загрузки JSON: ${resp.status}`);
+  const data = await resp.json();
+
+  const itemTitle = data.item_title;
+  const pgs = Array.isArray(data.pgs) ? data.pgs : [];
+  const pageCount = pgs.length;
+  const files = pgs.map(pg => pg.f);
+
+  return { itemTitle, pageCount, files };
+}
+
 // Обработка сообщений от popup или background
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('Получено сообщение в contentScript.js:', message);
-    
-    if (message.type === 'getDocumentInfo') {
-        const result = extractDocumentInfo();
-        
-        if (result) {
-            sendResponse({ status: 'success', data: result });
-        } else {
-            const observer = new MutationObserver(() => {
-                const newResult = extractDocumentInfo();
-                if (newResult) {
-                    observer.disconnect();
-                    sendResponse({ status: 'success', data: newResult });
-                }
-            });
+  console.log('Получено сообщение в contentScript.js:', message);
 
-            observer.observe(document, { childList: true, subtree: true });
-            return true;
+  if (message.type === 'getDocumentInfo') {
+    // Пытаемся сразу извлечь URL JSON-а
+    const info = extractDocumentInfo();
+if (info) {
+  // Если есть URL — загружаем JSON и отдаем вместе с метаданными и fileGroup
+  getDocumentMetadata(info.objectDataUrl)
+    .then(meta => {
+      sendResponse({
+        status: 'success',
+        data: {
+          objectDataUrl: info.objectDataUrl,
+          fileGroup:     info.fileGroup,
+          itemTitle:     meta.itemTitle,
+          pageCount:     meta.pageCount,
+          files:         meta.files
         }
-    } else if (message.type === 'getTotalPagesPr') {
-        const totalPages = getTotalPagesPr();
-        
-        if (totalPages !== null) {
-            sendResponse({ status: 'success', data: totalPages });
-        } else {
-            sendResponse({ status: 'error', error: 'Не удалось извлечь количество страниц' });
+      });
+    })
+    .catch(err => {
+      console.error('Ошибка при getDocumentMetadata:', err);
+      sendResponse({ status: 'error', error: err.message });
+    });
+} else {
+      // Если скрипт ещё не вставлен — следим за DOM
+      const observer = new MutationObserver(() => {
+        const newInfo = extractDocumentInfo();
+        if (newInfo) {
+          observer.disconnect();
+          getDocumentMetadata(newInfo.objectDataUrl)
+            .then(meta => {
+              sendResponse({
+                status: 'success',
+                data: {
+                  objectDataUrl: newInfo.objectDataUrl,
+                  itemTitle:   meta.itemTitle,
+                  pageCount:   meta.pageCount,
+                  files:       meta.files
+                }
+              });
+            })
+            .catch(err => {
+              console.error('Ошибка при getDocumentMetadata:', err);
+              sendResponse({ status: 'error', error: err.message });
+            });
         }
+      });
+      observer.observe(document, { childList: true, subtree: true });
     }
+    // Говорим Chrome, что ответ будет асинхронным
+    return true;
+
+  } else if (message.type === 'getTotalPagesPr') {
+    const totalPages = getTotalPagesPr();
+    if (totalPages !== null) {
+      sendResponse({ status: 'success', data: totalPages });
+    } else {
+      sendResponse({ status: 'error', error: 'Не удалось извлечь количество страниц' });
+    }
+  }
 });
 
 // Функция для извлечения заголовка
