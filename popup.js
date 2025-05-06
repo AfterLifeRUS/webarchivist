@@ -249,8 +249,8 @@ function setStatus(text, isError = false) {
 
     rangeInputContainer.style.display = "";
     downloadRangeBtn.style.display = "none";
-    zipMode.style.display = "none";
-    document.querySelector('label[for="zipMode"]').style.display = "none";
+    zipMode.style.display = "";
+    document.querySelector('label[for="zipMode"]').style.display = "";
 
     setStatus("Получение данных документа...");
 
@@ -642,9 +642,97 @@ async function fetchTotalPages(tabId) {
         return null;
     }
 }	
+
+/**
+ * Загружает все тайлы, собирает их в один canvas и возвращает Blob-объект JPEG-изображения.
+ * @param {string} documentKey       — GUID документа (itemTitle)
+ * @param {string} documentNumber    — имя файла, например "14996510_doc1.tiff"
+ * @param {string|number} fileGroup  — fileGroup, например "5079093"
+ * @returns {Promise<Blob>}          — JPEG-blob готового изображения
+ */
+async function downloadTiledImageBlob(documentKey, documentNumber, fileGroup) {
+  // 1) Получаем полные размеры изображения
+  setStatus("Получение размеров изображения...");
+  const { width, height } = await fetchImageInfo(documentKey, documentNumber, fileGroup);
+
+  // 2) Ищем максимальный JTL‑уровень
+  setStatus("Поиск оптимального JTL‑уровня...");
+  const jtlLevel = await findMaxJtlLevel(documentKey, documentNumber, fileGroup);
+
+  // 3) Готовим параметры разбиения на тайлы
+  const tileSize = 256; 
+  const cols = Math.ceil(width  / tileSize);
+  const rows = Math.ceil(height / tileSize);
+  const totalTiles = cols * rows;
+  const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/${fileGroup}/${documentNumber}&JTL=${jtlLevel},`;
+
+  // 4) HTMLCanvas для сборки
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  // 5) Сначала загружаем первый тайл, чтобы узнать реальный размер тайла
+  setStatus("Загрузка первого тайла для определения размеров...");
+  const firstTileData = await new Promise((res, rej) => {
+    chrome.runtime.sendMessage({ type: 'fetchTile', url: baseUrl + '0' }, r => {
+      if (r.status !== 'success') return rej(new Error('Первый тайл не загружен'));
+      res(r.data);
+    });
+  });
+  const firstImg = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload  = () => res(i);
+    i.onerror = () => rej(new Error('Ошибка загрузки первого тайла'));
+    i.src     = firstTileData;
+  });
+  const tileWidth  = firstImg.width;
+  const tileHeight = firstImg.height;
+
+  // Рисуем первый тайл
+  ctx.drawImage(firstImg, 0, 0);
+
+  // 6) Загружаем и рисуем остальные тайлы параллельно
+  setStatus(`Загрузка остальных ${totalTiles - 1} тайлов...`);
+  const tilePromises = [];
+  for (let idx = 1; idx < totalTiles; idx++) {
+    tilePromises.push((async () => {
+      const row = Math.floor(idx / cols);
+      const col = idx % cols;
+      // Получаем данные
+      const data = await new Promise((res, rej) => {
+        chrome.runtime.sendMessage({ type: 'fetchTile', url: baseUrl + idx }, r => {
+          if (r.status !== 'success') return rej(new Error(`Тайл ${idx} не загружен`));
+          res(r.data);
+        });
+      });
+      // Создаём Image и рисуем
+      await new Promise((res, rej) => {
+        const img = new Image();
+        img.onload  = () => {
+          ctx.drawImage(img, col * tileWidth, row * tileHeight);
+          res();
+        };
+        img.onerror = () => rej(new Error(`Ошибка загрузки тайла ${idx}`));
+        img.src     = data;
+      });
+      setStatus(`Тайлы: ${idx + 1}/${totalTiles}`);
+    })());
+  }
+  await Promise.all(tilePromises);
+
+  // 7) Конвертируем canvas в Blob и возвращаем
+  setStatus("Формирование итогового JPEG...");
+  return await new Promise((res, rej) => {
+    canvas.toBlob(blob => {
+      if (!blob) return rej(new Error("Не удалось создать Blob"));
+      res(blob);
+    }, 'image/jpeg');
+  });
+}
+
   
-  
-     // --- Функция загрузки изображения из тайлов ---
+     // --- Функция загрузки изображения из тайлов сразу на компьютер ---
     async function downloadTiledImage(documentKey, documentNumber, documentFileGroup) {
         console.log('Используемый documentKey:', documentKey);
         console.log('Используемый documentNumber:', documentNumber);
@@ -738,73 +826,84 @@ async function fetchTotalPages(tabId) {
         });
     }
   
-    // --- Обработчик скачивания страницы ---
-// --- Обработчик скачивания документа ---
+// --- Обработчик нажатия кнопки "Скачать" Президентской библиотеки ---
 async function handleDownloadPage() {
-    clearStatus();
-    if (downloadPageBtn) downloadPageBtn.disabled = true;
-    setStatus("Начало загрузки документа...");
+  clearStatus();
+  if (downloadPageBtn) downloadPageBtn.disabled = true;
+  setStatus("Начало процесса загрузки...");
 
-    try {
-        // 1. Получаем активную вкладку и ранее сохранённую информацию о документе
-        const tab = await getActiveTab();
-        const response = await sendMessageToTab(tab.id, { type: "getDocumentInfo" });
-
-        if (response.status !== 'success' || !response.data) {
-            throw new Error("Не удалось получить данные документа.");
-        }
-
-        // 2. Распаковываем всё, что нам нужно
-        const {
-            itemTitle,    // GUID документа, раньше documentKey
-            files,        // массив имён файлов из JSON
-            fileGroup     // параметр fileGroup
-        } = response.data;
-
-        if (!Array.isArray(files) || files.length === 0) {
-            throw new Error("Нет файлов для загрузки.");
-        }
-
-        setStatus(
-            `Название документа: ${itemTitle}\n` +
-            `FileGroup: ${fileGroup}\n` +
-            `Всего страниц: ${files.length}`
-        );
-
-        // 3. Читаем диапазон страниц из полей ввода
-        const startInput = document.querySelector('#startPage');
-        const endInput   = document.querySelector('#endPage');
-        const startPage = startInput ? parseInt(startInput.value, 10) : 1;
-        const endPage   = endInput   ? parseInt(endInput.value,   10) : startPage;
-
-        if (
-            isNaN(startPage) || isNaN(endPage) ||
-            startPage < 1 || endPage < startPage ||
-            endPage > files.length
-        ) {
-            throw new Error("Неверный диапазон страниц.");
-        }
-
-        setStatus(`Скачиваем страницы ${startPage}–${endPage}...`);
-
-        // 4. Итеративно скачиваем каждую страницу из массива files
-        for (let page = startPage; page <= endPage; page++) {
-            const fileName = files[page - 1]; // т. е. "14996510_doc1.tiff" и т. д.
-            setStatus(`Скачивание страницы ${page} (файл ${fileName})...`);
-            // downloadTiledImage(documentKey, docNumWithSuffix, fileGroup)
-            await downloadTiledImage(itemTitle, fileName, fileGroup);
-        }
-
-        showNotification(
-            "Скачивание завершено",
-            `Страницы ${startPage}–${endPage} успешно скачаны!`
-        );
-    } catch (error) {
-        console.error("Ошибка скачивания документа:", error);
-        setStatus(`Ошибка: ${error.message}`, true);
-    } finally {
-        if (downloadPageBtn) downloadPageBtn.disabled = false;
+  try {
+    // 1. Получаем активную вкладку и информацию о документе
+    const tab = await getActiveTab();
+    const resp = await sendMessageToTab(tab.id, { type: "getDocumentInfo" });
+    if (resp.status !== 'success' || !resp.data) {
+      throw new Error("Не удалось получить данные документа.");
     }
+    const { itemTitle, files, fileGroup } = resp.data;
+
+    if (!Array.isArray(files) || files.length === 0) {
+      throw new Error("Нет доступных файлов для загрузки.");
+    }
+
+    // 2. Считываем диапазон страниц
+    const start = parseInt(document.querySelector('#startPage').value, 10) || 1;
+    const end   = parseInt(document.querySelector('#endPage').value,   10) || start;
+    if (start < 1 || end < start || end > files.length) {
+      throw new Error("Неверный диапазон страниц.");
+    }
+
+    // 3. Проверяем режим: ZIP или по отдельности
+    const zipModeChecked = document.querySelector('#zipMode').checked;
+    if (zipModeChecked) {
+      // === ВАРИАНТ 1: ZIP-упаковка ===
+      if (typeof JSZip !== 'function') {
+        throw new Error("JSZip не подключён.");
+      }
+      setStatus(`Собираем ZIP для страниц ${start}–${end}…`);
+      const zip = new JSZip();
+
+      // последовательно «рисуем» каждое изображение в ZIP
+      for (let i = start; i <= end; i++) {
+        const fileName = files[i - 1];
+        setStatus(`Страница ${i}/${end}: формируем изображение…`);
+        // downloadTiledImageBlob возвращает Blob JPEG
+        const blob = await downloadTiledImageBlob(itemTitle, fileName, fileGroup);
+        const inZipName = `${itemTitle}-${i}.jpeg`;
+        zip.file(inZipName, blob);
+        setStatus(`Страница ${i}/${end}: добавлена в ZIP.`);
+      }
+
+      // создаём и скачиваем архив
+      setStatus("Генерируем ZIP…");
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipUrl  = URL.createObjectURL(zipBlob);
+      const zipName = `${itemTitle} (${start}-${end}).zip`;
+      setStatus("Скачиваем ZIP…");
+      await downloadFile({ url: zipUrl, filename: zipName });
+      URL.revokeObjectURL(zipUrl);
+
+      showNotification("ZIP скачан", `Файл "${zipName}" успешно загружен!`);
+      setStatus("ZIP успешно скачан.");
+
+    } else {
+      // === ВАРИАНТ 2: скачиваем каждое изображение по отдельности ===
+      setStatus(`Скачиваем страницы ${start}–${end}…`);
+      for (let i = start; i <= end; i++) {
+        const fileName = files[i - 1];
+        setStatus(`Страница ${i}/${end}: скачиваем…`);
+        // старая функция, сразу сохраняет через chrome.downloads
+        await downloadTiledImage(itemTitle, fileName, fileGroup);
+      }
+      showNotification("Скачивание завершено", `Страницы ${start}–${end} скачаны.`);
+      setStatus("Все изображения успешно скачаны.");
+    }
+
+  } catch (err) {
+    console.error("Ошибка при загрузке:", err);
+    setStatus(`Ошибка: ${err.message}`, true);
+  } finally {
+    if (downloadPageBtn) downloadPageBtn.disabled = false;
+  }
 }
 
 
