@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<gupdate xmlns="http://www.google.com/update2/response" protocol="2.0">
-  <app appid="omppadinlciglkbcgfmkggdpminmddbg">
-    <updatecheck
-		codebase="https://AfterLifeRUS.github.io/webarchivist/ВебАрхивист 0.3.4.crx"
-		version="0.3.4" />
-  </app>
-</gupdate>

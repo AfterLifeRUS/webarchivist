@@ -1039,45 +1039,37 @@ async function handleDownloadPage() {
     });
   }
   
- /** Проверяет, актуальна ли версия расширения, по GitHub */
-async function checkVersionFromUpdatesXml() {
-  const updatesUrl = 'https://AfterLifeRUS.github.io/webarchivist/updates.xml';
+/** Проверяет, актуальна ли версия расширения, по manifest.json в репозитории */
+async function checkVersionFromManifest() {
+  const manifestUrl = 'https://raw.githubusercontent.com/AfterLifeRUS/webarchivist/main/manifest.json';
   const listEl = document.getElementById('messageList');
 
   try {
-    const response = await fetch(updatesUrl);
+    const response = await fetch(manifestUrl, { cache: "no-cache" });
     if (!response.ok) {
-      throw new Error(`Ошибка загрузки updates.xml: ${response.status}`);
+      throw new Error(`Ошибка загрузки manifest.json: ${response.status}`);
     }
 
-    const xmlText = await response.text();
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlText, "application/xml");
-
-    const updatecheck = xmlDoc.querySelector("updatecheck");
-    if (!updatecheck) {
-      throw new Error("updatecheck не найден в updates.xml");
-    }
-
-    const latestVersion = updatecheck.getAttribute("version");
+    const remoteManifest = await response.json();
+    const latestVersion = remoteManifest.version;
     if (!latestVersion) {
-      throw new Error("Атрибут version отсутствует в updates.xml");
+      throw new Error("Поле version отсутствует в manifest.json");
     }
 
     const currentVersion = chrome.runtime.getManifest().version;
 
     console.log(`Текущая версия расширения: ${currentVersion}`);
-    console.log(`Последняя версия из updates.xml: ${latestVersion}`);
+    console.log(`Последняя версия из manifest.json: ${latestVersion}`);
 
+    // Сравнение семантических версий
     function isNewerVersion(current, latest) {
-      const currentParts = current.split('.').map(Number);
-      const latestParts = latest.split('.').map(Number);
-
-      for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
-        const currentPart = currentParts[i] || 0;
-        const latestPart = latestParts[i] || 0;
-        if (latestPart > currentPart) return true;
-        if (latestPart < currentPart) return false;
+      const curr = current.split('.').map(Number);
+      const lat  = latest.split('.').map(Number);
+      for (let i = 0; i < Math.max(curr.length, lat.length); i++) {
+        const c = curr[i] || 0;
+        const l = lat[i] || 0;
+        if (l > c) return true;
+        if (l < c) return false;
       }
       return false;
     }
@@ -1091,21 +1083,18 @@ async function checkVersionFromUpdatesXml() {
       updateButton.textContent = "Обновить";
       updateButton.style.marginTop = '10px';
       updateButton.addEventListener('click', () => {
-        alert("Загрузите новую версию в репозитории на GitHub");
-        chrome.tabs.create({ url: "https://github.com/AfterLifeRUS/webarchivist" });
+        chrome.tabs.create({ url: "https://github.com/AfterLifeRUS/webarchivist/" });
       });
       listEl.appendChild(updateButton);
     } else {
-      statusLi.textContent = `Версия актуальная: ${currentVersion}`;
+      statusLi.textContent = `Версия актуальна: ${currentVersion}`;
       statusLi.style.color = 'green';
     }
 
-    if (listEl) {
-      listEl.appendChild(statusLi);
-    }
+    listEl.appendChild(statusLi);
 
   } catch (error) {
-    console.error("Ошибка проверки версии через updates.xml:", error);
+    console.error("Ошибка проверки версии по manifest.json:", error);
     const statusLi = document.createElement('li');
     statusLi.textContent = "Не удалось проверить обновления.";
     statusLi.style.color = 'red';
@@ -1118,5 +1107,5 @@ async function checkVersionFromUpdatesXml() {
 
   // --- Запуск инициализации ---
   initializePopup();
-  checkVersionFromUpdatesXml();
+  checkVersionFromManifest();
 });
