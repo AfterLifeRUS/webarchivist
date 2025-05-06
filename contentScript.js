@@ -36,40 +36,56 @@ function getTotalPagesPr() {
 
 
 
-// Функция для извлечения данных из мета-тега
+// Функция для извлечения данных из мета-тега и параметра data-filegroup
 function extractDocumentInfo() {
+    // 1. Извлекаем URL изображения из meta[property="og:image"]
     const metaTag = document.querySelector('meta[property="og:image"]');
-    
     if (!metaTag) {
         console.log('Мета-тег og:image не найден');
         return null;
     }
-
     const content = metaTag.getAttribute('content');
-    
     if (!content) {
         console.log('Атрибут content пустой');
         return null;
     }
-
     console.log('Найден content:', content);
 
-    const regex = /\/book_preview\/([^\/]+)\/(\d+)_doc/;
-    const match = content.match(regex);
-
-    if (!match) {
-        console.log('Не удалось извлечь данные из content:', content);
+    // 2. Извлекаем ключ (папку) между /book_preview/ и следующим /
+    const keyMatch = content.match(/\/book_preview\/([^\/]+)\//);
+    if (!keyMatch) {
+        console.log('Не удалось извлечь documentKey из content:', content);
         return null;
     }
+    const documentKey = keyMatch[1].toUpperCase();
 
-    const documentKey = match[1].toUpperCase();
-    const documentNumber = match[2].toUpperCase();
+    // 3. Извлекаем имя файла (всё после последнего / и до .jpg)
+    const fileMatch = content.match(/\/([^\/]+)\.jpg$/);
+    if (!fileMatch) {
+        console.log('Не удалось извлечь documentNumber из content:', content);
+        return null;
+    }
+    const documentNumber = fileMatch[1];  // например "5079094_doc1_..."
 
+    // 4. Находим элемент с data-filegroup и забираем его значение
+    //    Ищем <div id="bookmark-modal-... " data-filegroup="...">
+    const bookmarkDiv = document.querySelector('div[id^="bookmark-modal-"][data-filegroup]');
+    let fileGroup = null;
+    if (bookmarkDiv) {
+        fileGroup = bookmarkDiv.getAttribute('data-filegroup');  // например "5079093"
+        console.log('Найден data-filegroup:', fileGroup);
+    } else {
+        console.warn('Элемент с data-filegroup не найден');
+    }
+
+    // 5. Возвращаем все три значения
     return {
         documentKey,
-        documentNumber
+        documentNumber,
+        fileGroup
     };
 }
+
 
 // Обработка сообщений от popup или background
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

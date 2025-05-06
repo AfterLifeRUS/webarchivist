@@ -148,18 +148,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- Утилиты для UI ---
   /** Устанавливает текст статуса */
-  function setStatus(text, isError = false) {
-    let statusLi = document.getElementById('status');
-    if (!statusLi) {
-      messageList.innerHTML = ''; // Очищаем предыдущие сообщения
-      statusLi = document.createElement('li');
-      statusLi.id = 'status';
-      messageList.appendChild(statusLi);
-    }
-    statusLi.textContent = text;
-    statusLi.style.color = isError ? 'red' : ''; // Красный цвет для ошибок
-    console.log(`Status: ${text}${isError ? ' (ERROR)' : ''}`);
+function setStatus(text, isError = false) {
+  let statusLi = document.getElementById('status');
+  if (!statusLi) {
+    messageList.innerHTML = ''; // Очищаем предыдущие сообщения
+    statusLi = document.createElement('li');
+    statusLi.id = 'status';
+    messageList.appendChild(statusLi);
   }
+
+  // Проверяем, нужно ли вставить список сайтов
+  if (text === 'SUPPORTED_SITES') {
+    const sites = [
+      { url: "https://yandex.ru/archive/", name: "yandex.ru/archive" },
+      { url: "https://goskatalog.ru/portal/", name: "goskatalog.ru/portal" },
+      { url: "https://www.prlib.ru/", name: "prlib.ru" }
+    ];
+    const links = sites.map(site =>
+      `<li><a href="${site.url}" target="_blank">${site.name}</a></li>`
+    ).join('');
+    statusLi.innerHTML = `<span style="color: ${isError ? 'red' : 'inherit'}">Откройте поддерживаемый сайт:</span><ul>${links}</ul>`;
+  } else {
+    statusLi.textContent = text;
+    statusLi.style.color = isError ? 'red' : '';
+  }
+
+  console.log(`Status: ${text}${isError ? ' (ERROR)' : ''}`);
+}
 
   /** Очищает сообщение статуса */
   function clearStatus() {
@@ -187,8 +202,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const url = tab.url || "";
       const isYandexArchive = /^https:\/\/(ya\.ru|yandex\.ru)\/archive/.test(url);
-      const isGoskatalog = /^https:\/\/goskatalog\.ru\/portal\/#\/collections/.test(url);
-	  const isPrlib = /^https:\/\/www\.prlib\.ru\/item\/\d+$/.test(url);
+      const isGoskatalog = /^https:\/\/goskatalog\.ru\/portal/.test(url);
+	  const isPrlib = /^https:\/\/www\.prlib\.ru\/item/.test(url);
 	  
       console.log("Яндекс.Архив:", isYandexArchive);
       console.log("Госкаталог:", isGoskatalog);
@@ -198,6 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (isYandexArchive) {
         header.textContent = "Яндекс.Архив";
         YAControls.forEach(el => { el.style.display = ""; }); // Показываем контролы ЯА
+		zipMode.style.display = "";
         downloadLotBtn.style.display = "none"; // Скрываем кнопку ГК
         if (!yaElementsFound) {
           setStatus("Ошибка: Не все элементы для Я.Архива найдены!", true);
@@ -275,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } else {
         header.textContent = "Неподдерживаемый сайт";
-        setStatus("Откройте поддерживаемый сайт.", true);
+        setStatus('SUPPORTED_SITES', true);
         return; // Больше ничего не делаем
       }
 
@@ -550,9 +566,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   
     // --- Получение данных из info.json ---
-    async function fetchImageInfo(documentKey, documentNumber) {
+	async function fetchImageInfo(documentKey, documentNumber, documentFileGroup) {
         console.log('Формирование ссылки info.json для documentKey:', documentKey);
-        const infoUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?IIIF=/var/data/scans/public/${documentKey}/0/${documentNumber}_doc1.tiff/info.json`;
+        const infoUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?IIIF=/var/data/scans/public/${documentKey}/${documentFileGroup}/${documentNumber}.tiff/info.json`;
         
         return new Promise((resolve, reject) => {
             chrome.runtime.sendMessage({ type: 'fetchJson', url: infoUrl }, (response) => {
@@ -571,8 +587,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // --- Проверка доступности JTL уровня ---
-    async function findMaxJtlLevel(documentKey, documentNumber) {
-        const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/0/${documentNumber}_doc1.tiff&JTL=`;
+    async function findMaxJtlLevel(documentKey, documentNumber, documentFileGroup) {
+        const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/${documentFileGroup}/${documentNumber}.tiff&JTL=`;
         
         for (let level = 10; level >= 1; level--) {
             const testUrl = `${baseUrl}${level},0`;
@@ -622,16 +638,16 @@ async function fetchTotalPages(tabId) {
   
   
      // --- Функция загрузки изображения из тайлов ---
-    async function downloadTiledImage(documentKey, documentNumber) {
+    async function downloadTiledImage(documentKey, documentNumber, documentFileGroup) {
         console.log('Используемый documentKey:', documentKey);
-        
+        console.log('Используемый documentNumber:', documentNumber);
         // Получаем размеры изображения из info.json
         setStatus("Получение размеров изображения...");
-        const { width, height } = await fetchImageInfo(documentKey, documentNumber);
+        const { width, height } = await fetchImageInfo(documentKey, documentNumber, documentFileGroup);
 		
 		// Находим наибольший доступный JTL уровень
         setStatus("Поиск оптимального JTL уровня...");
-        const jtlLevel = await findMaxJtlLevel(documentKey, documentNumber);
+        const jtlLevel = await findMaxJtlLevel(documentKey, documentNumber, documentFileGroup);
         console.log(`Используется JTL уровень: ${jtlLevel}`);
 
         // Предполагаемый размер тайла (можно уточнить, если известен)
@@ -642,7 +658,7 @@ async function fetchTotalPages(tabId) {
 
         console.log(`Вычисленные параметры: cols=${cols}, rows=${rows}, totalTiles=${totalTiles}`);
 
-        const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/0/${documentNumber}_doc1.tiff&JTL=${jtlLevel},`;
+        const baseUrl = `https://content.prlib.ru/fcgi-bin/iipsrv.fcgi?FIF=/var/data/scans/public/${documentKey}/${documentFileGroup}/${documentNumber}.tiff&JTL=${jtlLevel},`;
 
         return new Promise((resolve, reject) => {
             setStatus("Загрузка первого тайла для определения размеров...");
@@ -731,34 +747,54 @@ async function handleDownloadPage() {
         }
 
         const documentKey = response.data.documentKey;
-        // Поскольку documentNumber может приходить строкой, приводим к числу
-        const documentNumber = parseInt(response.data.documentNumber, 10);
-        if (isNaN(documentNumber)) {
-            throw new Error("Неверный номер документа: не число.");
-        }
-        setStatus(`Ключ документа: ${documentKey}\nНомер документа: ${documentNumber}`);
+        const documentNumberStr = response.data.documentNumber;
+        const documentFileGroup = response.data.fileGroup;		
+        // documentNumberStr, например, "5079094_doc1_92E47A28-07FB-4D3D-BFBC-3C50E07A3330"
 
-        // Читаем диапазон страниц из полей ввода (ID из HTML: startPage, endPage)
+        // Разделяем на числовую часть и суффикс
+        const parts = documentNumberStr.match(/^(\d+)(.*)$/);
+        if (!parts) {
+            throw new Error(`Неверный формат documentNumber: ${documentNumberStr}`);
+        }
+        const baseNumberStr = parts[1];       // "5079094"
+        const suffix        = parts[2];       // "_doc1_92E47A28-07FB-4D3D-BFBC-3C50E07A3330"
+        const baseNumber    = parseInt(baseNumberStr, 10);
+        if (isNaN(baseNumber)) {
+            throw new Error(`Неверный номер документа: ${baseNumberStr}`);
+        }
+
+        setStatus(
+            `Ключ документа: ${documentKey}\n` +
+            `Исходный идентификатор: ${documentNumberStr}`
+        );
+
+        // Читаем диапазон страниц из полей ввода
         const startInput = document.querySelector('#startPage');
         const endInput   = document.querySelector('#endPage');
         const startPage = startInput ? parseInt(startInput.value, 10) : 1;
-        const endPage   = endInput   ? parseInt(endInput.value, 10)   : startPage;
+        const endPage   = endInput   ? parseInt(endInput.value,   10) : startPage;
 
-        if (isNaN(startPage) || isNaN(endPage) || startPage < 1 || endPage < startPage) {
+        if (
+            isNaN(startPage) || isNaN(endPage) ||
+            startPage < 1 || endPage < startPage
+        ) {
             throw new Error("Неверный диапазон страниц.");
         }
 
-        setStatus(`Скачиваем страницы ${startPage} – ${endPage}...`);
+        setStatus(`Скачиваем страницы ${startPage}–${endPage}...`);
 
         // Итеративно скачиваем каждую страницу
         for (let page = startPage; page <= endPage; page++) {
-            // Суммируем как числа
-            const pageNumber = documentNumber + page - 1;
-            setStatus(`Скачивание страницы ${page} (номер ${pageNumber})...`);
-            await downloadTiledImage(documentKey, pageNumber);
+            const computedNumber    = baseNumber + (page - 1);
+            const docNumWithSuffix  = `${computedNumber}${suffix}`;
+            setStatus(`Скачивание страницы ${page} (номер ${docNumWithSuffix})...`);
+            await downloadTiledImage(documentKey, docNumWithSuffix, documentFileGroup);
         }
 
-        showNotification("Скачивание завершено", `Страницы ${startPage}–${endPage} скачаны!`);
+        showNotification(
+            "Скачивание завершено",
+            `Страницы ${startPage}–${endPage} успешно скачаны!`
+        );
     } catch (error) {
         console.error("Ошибка скачивания изображения:", error);
         setStatus(`Ошибка: ${error.message}`, true);
@@ -766,6 +802,7 @@ async function handleDownloadPage() {
         if (downloadPageBtn) downloadPageBtn.disabled = false;
     }
 }
+
   
   /**
    * Обрабатывает скачивание диапазона страниц (как ZIP или по отдельности).
