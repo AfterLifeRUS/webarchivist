@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ВебАрхивист",
-  "version": "0.3.4.6",
+  "version": "0.3.4.7",
   "description": "Позволяет автоматизировать скачивание изображений из различных сервисов",
 "permissions": [
     "webRequest",
